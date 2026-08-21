@@ -1,5 +1,7 @@
 import * as fs from 'node:fs';
 import path from 'node:path';
+import pMap from 'p-map';
+import pRetry from 'p-retry';
 import type { CourseCatalogEntry } from './catalog.js';
 import { createEcho360Download } from './downloader.js';
 import { Ledger } from './ledger.js';
@@ -7,7 +9,7 @@ import { fetchSectionLessons } from './lister.js';
 import type { SyllabusLesson } from './lister_schema.js';
 import { lectureNameFromText, termParts, weekNumberForDate } from './naming.js';
 import { renderDestination, type TemplateValues } from './template.js';
-import { Downloader } from '../utils/downloader.js';
+import { SkippedDownload } from './downloader.js';
 import logger from '../utils/logger.js';
 
 export interface PlannedLecture {
@@ -127,17 +129,16 @@ export async function mirrorCourses(
   destTemplate: string,
   concurrency: number,
 ): Promise<MirrorSummary> {
-  const planned: PlannedLecture[] = [];
   let setupFailures = 0;
-
-  for (const course of courses) {
+  const planned = (await pMap(courses, async course => {
     try {
-      planned.push(...await fetchCourseLectures(course, cookie));
+      return await fetchCourseLectures(course, cookie);
     } catch (error) {
       setupFailures += 1;
       logger.error(`Failed to fetch course ${course.id}:`, error);
+      return [];
     }
-  }
+  }, { concurrency })).flat();
 
   const destinations = planned.map(lecture => ({ lecture, destination: renderDestination(destTemplate, templateValues(lecture)) }));
   const roots = new Set(destinations.map(item => item.destination.root));
@@ -158,8 +159,7 @@ export async function mirrorCourses(
     pathOwners.set(destination.relativePath, lecture.id);
   }
 
-  const downloader = new Downloader(concurrency, { outdir: root, maxRetries: 4 });
-  let queued = 0;
+  const queued: Array<{ lecture: PlannedLecture; destination: ReturnType<typeof renderDestination> }> = [];
 
   for (const { lecture, destination } of destinations) {
     const state = ledger.reconcile(lecture.id, destination.relativePath);
@@ -174,27 +174,49 @@ export async function mirrorCourses(
       continue;
     }
 
-    queued += 1;
-    const url = `https://echo360.net.au/lesson/${lecture.id}/classroom`;
-    downloader.add({
-      download: async () => createEcho360Download(url, cookie, destination.relativePath),
-      callback: (_link, error) => {
-        if (!error && fs.existsSync(destination.absolutePath)) ledger.set(destination.relativePath, lecture.id);
-      },
-      label: destination.relativePath,
-    });
+    queued.push({ lecture, destination });
   }
 
-  logger.info(`Prepared ${planned.length} recordings: ${queued} download(s), ${renamed} rename(s), ${alreadyPresent} already present.`);
-  await downloader.idle();
+  logger.info(`Prepared ${planned.length} recordings: ${queued.length} download(s), ${renamed} rename(s), ${alreadyPresent} already present.`);
+  let downloaded = 0;
+  let skipped = 0;
+  let failed = 0;
+  await pMap(queued, async ({ lecture, destination }) => {
+    const url = `https://echo360.net.au/lesson/${lecture.id}/classroom`;
+    try {
+      const download = await pRetry(
+        async () => {
+          const next = await createEcho360Download(url, cookie, destination.absolutePath);
+          if (!(next instanceof SkippedDownload)) await next.download();
+          return next;
+        },
+        {
+          retries: 3,
+          onFailedAttempt: ({ error, attemptNumber }) => logger.warn(
+            `Download ${attemptNumber}/4 failed for ${destination.relativePath}: ${error.message}`,
+          ),
+        },
+      );
+      if (download instanceof SkippedDownload) {
+        skipped += 1;
+        logger.info(`SKIP ${destination.relativePath} — ${download.skipReason}`);
+        return;
+      }
+      ledger.set(destination.relativePath, lecture.id);
+      downloaded += 1;
+    } catch (error) {
+      failed += 1;
+      logger.error(`Download failed for ${destination.relativePath}:`, error);
+    }
+  }, { concurrency });
 
   return {
     lectures: planned.length,
     renamed,
     alreadyPresent,
-    downloaded: downloader.completed,
-    skipped: downloader.skipped,
-    failed: downloader.failed,
+    downloaded,
+    skipped,
+    failed,
     setupFailures,
   };
 }

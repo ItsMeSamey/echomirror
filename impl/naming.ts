@@ -1,12 +1,3 @@
-import path from 'node:path';
-import type { Echo360Data } from './downloader_schema.js';
-
-export interface LessonNamingHint {
-  weekNumber: number;
-  lectureNumber: number;
-  syllabusName?: string;
-}
-
 export function asciiSlug(value: string, fallback: string): string {
   const cleaned = value
     .normalize('NFKD')
@@ -57,21 +48,6 @@ export function termParts(termName?: string, termStart?: string): TermParts {
   return { year, semester, yearSemester: `${year}_${semester}` };
 }
 
-export function courseCodeFromData(data: Echo360Data): string {
-  const candidates = [
-    data.sectionInfo?.course?.courseIdentifier,
-    data.sectionInfo?.course?.courseName,
-    data.sectionInfo?.label,
-    data.context?.courseId,
-  ].filter(Boolean) as string[];
-
-  return normalizeCourseCode(candidates[0], 'course');
-}
-
-export function yearSemesterFromData(data: Echo360Data): string {
-  return termParts(data.sectionInfo?.term?.name, data.sectionInfo?.term?.session?.startDate).yearSemester;
-}
-
 export function lectureNameFromText(value: string | undefined): string {
   if (!value) return 'lecture';
 
@@ -86,35 +62,6 @@ export function lectureNameFromText(value: string | undefined): string {
   const stripped = stripLectureBoilerplate(value);
   const slug = asciiSlug(stripped, 'lecture');
   return /^(lecture|class|recording|session)$/.test(slug) ? 'lecture' : slug;
-}
-
-export function lectureNameFromData(data: Echo360Data, syllabusName?: string): string {
-  const candidates = [
-    syllabusName,
-    data.lesson?.displayName,
-    data.lesson?.name,
-    data.viewEmbedInfo?.mediaName,
-    data.title,
-  ].filter(Boolean) as string[];
-
-  for (const candidate of candidates) {
-    const name = lectureNameFromText(candidate);
-    if (name !== 'lecture') return name;
-  }
-
-  return 'lecture';
-}
-
-export function buildRecordingPath(data: Echo360Data, hint: LessonNamingHint): string {
-  const week = String(Math.max(1, hint.weekNumber)).padStart(2, '0');
-  const lecture = String(Math.max(1, hint.lectureNumber)).padStart(2, '0');
-  const name = lectureNameFromData(data, hint.syllabusName);
-  return path.join(
-    yearSemesterFromData(data),
-    courseCodeFromData(data),
-    'recordings',
-    `${week}_${lecture}_${name}.mp4`,
-  );
 }
 
 export function weekNumberForDate(date: Date, termStart: Date): number {

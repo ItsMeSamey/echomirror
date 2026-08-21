@@ -1,3 +1,5 @@
+#!/usr/bin/env bun
+
 import { loadToken } from './impl/token.js';
 import { buildCourseCatalog, fetchEnrollmentSections, selectCourse, type CourseCatalogEntry } from './impl/catalog.js';
 import { HELP_TEXT, parseCliArgs } from './impl/cli.js';

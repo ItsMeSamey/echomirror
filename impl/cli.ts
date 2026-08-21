@@ -45,10 +45,9 @@ existing files instead of downloading them again.
 
 Environment:
   ECHO_CONCURRENCY       Recording jobs in flight (default 6)
-  ECHO_CURL_CONCURRENCY  Native curl transfers per recording (default 4)
-  ECHO_BROWSER           Brave/Chrome/Chromium executable override
+  ECHO_BROWSER           Brave executable override
   ECHO_BROWSER_DATA_DIR  Browser user-data directory override
-  ECHO_BROWSER_PROFILE   Browser profile override (default: Default)`;
+`;
 
 function valueAfter(args: string[], index: number, option: string): [string, number] {
   const value = args[index + 1];

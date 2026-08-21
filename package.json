@@ -7,12 +7,17 @@
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "start": "node dist/echomirror.js"
+    "start": "bun run echomirror.ts"
   },
   "dependencies": {
-    "node-html-parser": "^7.0.1"
+    "chrome-remote-interface": "^0.34.0",
+    "execa": "^10.0.1",
+    "node-html-parser": "^7.0.1",
+    "p-map": "^7.0.6",
+    "p-retry": "^8.0.0"
   },
   "devDependencies": {
+    "@types/chrome-remote-interface": "^0.34.0",
     "@types/node": "^26.2.0",
     "typescript": "^5"
   }

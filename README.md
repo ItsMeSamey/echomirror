@@ -4,7 +4,7 @@ Bun CLI for mirroring EchoVideo/Echo360 recordings from every enrolled course, o
 
 ## Authentication
 
-Authentication is automatic. echomirror reads the Echo360 cookies from your existing Brave, Chrome, or Chromium profile. It does this safely by copying the profile's cookie database to a temporary directory and letting the browser decrypt its own snapshot; it does not open the login page in a new profile.
+Authentication is automatic. echomirror reads Echo360 cookies from Brave's `Default` profile. It copies the cookie database to a temporary directory and lets Brave decrypt that snapshot; the visible login always opens in the real `Default` profile.
 
 When the saved session is missing, expired, or rejected, echomirror opens this UQ Blackboard LTI placement in your normal browser:
 
@@ -20,7 +20,7 @@ Manual cookie input remains available as a fallback:
 bun run echomirror.ts --token 'PASTE_COOKIE_VALUE'
 ```
 
-The visible login and cookie extraction both use the browser's `Default` profile. Set `ECHO_BROWSER_PROFILE` only if the intended profile has another on-disk name, such as `Profile 1`. `ECHO_BROWSER` and `ECHO_BROWSER_DATA_DIR` override browser discovery.
+`ECHO_BROWSER` and `ECHO_BROWSER_DATA_DIR` override the Brave executable and user-data directory if needed.
 
 ## CLI
 
@@ -86,9 +86,9 @@ The ledger root is the longest directory prefix before the first template field.
 
 ## Native downloads and concurrency
 
-Media playlists, segments, captions, and keys are downloaded by the device's `curl`; `ffmpeg` only combines the local tracks into the final MP4. Both commands must be available on `PATH`.
+The device's `ffmpeg` handles HLS transfer and muxing directly. It must be available on `PATH`; echomirror no longer implements its own HLS client or segment cache.
 
-`ECHO_CONCURRENCY` controls recording-level concurrency (default `6`). `ECHO_CURL_CONCURRENCY` controls curl's parallel transfers within each recording (default `4`). Incomplete per-recording caches remain under `.partial` for a retry and are removed after a successful mux.
+`ECHO_CONCURRENCY` controls recording-level concurrency (default `6`). Failed downloads are retried with fresh lesson data and written atomically through a temporary file.
 
 Set `ECHO_LOG` to a filename if you want a debug log. Normal runs no longer create a large `log.log` automatically.
 
