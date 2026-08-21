@@ -1,15 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { cloudFrontCookieExpiry, cookieMap } from './auth.js';
+import { captureEchoCookie } from './browser.js';
 
 export const COOKIE_FILE = 'cookies';
 
-export const TOKEN_HELP = `To extract the token:
-1. Login to Echo360.
-2. Open DevTools -> Network and reload the site.
-3. Open an Echo360 request and copy the full Cookie request-header value.
-4. Save that value to ./cookies, or pass it once with --token <cookie>.
-`;
+export const TOKEN_HELP = `echomirror normally opens a browser and captures the Echo360 session itself.
+Set ECHO_BROWSER if Brave, Chrome, or Chromium is not found automatically.
+You can still pass a raw Cookie request-header value with --token as a fallback.`;
 
 function expiry(cookie: string): Date | undefined {
   const cf = cloudFrontCookieExpiry(cookie);
@@ -35,7 +33,12 @@ function normalizeCookie(value: string): string {
   return value.trim();
 }
 
-export async function loadToken(provided?: string): Promise<string> {
+export interface TokenOptions {
+  readonly forceBrowser?: boolean;
+  readonly capture?: () => Promise<string>;
+}
+
+export async function loadToken(provided?: string, options: TokenOptions = {}): Promise<string> {
   let cookie: string | undefined;
 
   if (provided !== undefined) {
@@ -43,11 +46,21 @@ export async function loadToken(provided?: string): Promise<string> {
     if (!cookie) throw new Error(`No Echo token provided.\n${TOKEN_HELP}`);
     assertTokenValid(cookie);
     writeFileSync(COOKIE_FILE, cookie + '\n', { encoding: 'utf8', mode: 0o600 });
-  } else if (existsSync(COOKIE_FILE)) {
+  } else if (!options.forceBrowser && existsSync(COOKIE_FILE)) {
     cookie = normalizeCookie(readFileSync(COOKIE_FILE, 'utf8'));
+    try {
+      assertTokenValid(cookie);
+      return cookie;
+    } catch {
+      cookie = undefined;
+    }
   }
 
-  if (!cookie) throw new Error(`No Echo token provided.\n${TOKEN_HELP}`);
+  if (!cookie) {
+    cookie = normalizeCookie(await (options.capture ?? captureEchoCookie)());
+    if (!cookie) throw new Error(`Browser returned no Echo token.\n${TOKEN_HELP}`);
+    writeFileSync(COOKIE_FILE, cookie + '\n', { encoding: 'utf8', mode: 0o600 });
+  }
   assertTokenValid(cookie);
   return cookie;
 }

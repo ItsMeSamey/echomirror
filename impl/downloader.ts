@@ -67,11 +67,10 @@ function createEcho360DownloadFromSession(session: EchoPageSession, pageUrl: str
     return new SkippedDownload('Echo player reports no downloadable video for this lesson');
   }
 
-  const streams = data.video.playableMedias.filter(media => media.trackType.length === 1);
-  const convertedStreams: M3U8Stream[] = streams.map(media => ({
-    url: media.uri,
-    kind: media.trackType[0]?.toLowerCase() as M3U8Stream['kind'],
-  }));
+  const convertedStreams: M3U8Stream[] = data.video.playableMedias.flatMap(media => {
+    const kind = media.trackType.length === 1 ? media.trackType[0]?.toLowerCase() : undefined;
+    return kind === 'audio' || kind === 'video' ? [{ url: media.uri, kind }] : [];
+  });
   if (data.captions) convertedStreams.push({ url: data.captions, kind: 'subtitle' });
 
   if (!convertedStreams.length) {

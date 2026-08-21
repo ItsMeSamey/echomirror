@@ -74,7 +74,7 @@ test('HTTP 403 from enrollment fetch is reported as an invalid ./cookies credent
   try {
     await assert.rejects(fetchEnrollmentSections('session=abc'), error => {
       assert.match(error.message, /rejected \.\/cookies with HTTP 403/i);
-      assert.match(error.message, /DevTools -> Network/);
+      assert.match(error.message, /opens a browser/i);
       return true;
     });
   } finally {

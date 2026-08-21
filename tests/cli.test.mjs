@@ -8,6 +8,7 @@ test('CLI parses course and destination template', () => {
     help: false,
     list: false,
     all: false,
+    login: false,
     course: '2026_1:comp4403',
     dest: '/tmp/{course}/{week}_{lecnum}_{lecname}',
   });
@@ -15,6 +16,10 @@ test('CLI parses course and destination template', () => {
 
 test('CLI defaults to the UQ mirror template', () => {
   assert.equal(parseCliArgs(['--all']).dest, DEFAULT_DEST_TEMPLATE);
+});
+
+test('CLI can force browser reauthentication', () => {
+  assert.equal(parseCliArgs(['--list', '--login']).login, true);
 });
 
 test('CLI rejects conflicting selections', () => {

@@ -28,7 +28,7 @@ export async function fetchResponse(input: RequestInfo | URL, init?: RequestInit
   };
 }
 
-export async function fetchJson(input: RequestInfo | URL, init?: RequestInit): Promise<FetchResponse & {json: any}> {
+export async function fetchJson(input: RequestInfo | URL, init?: RequestInit): Promise<FetchResponse & {json: unknown}> {
   const response = await fetch(input, init);
   if (!response.ok) throw new Error(`HTTP Error! status: ${response.status}\nBody: ${await response.text()}`);
   return {
@@ -49,5 +49,3 @@ export async function fetchHtmlResponse(input: RequestInfo | URL, init?: Request
   logger.debug("HTML:", response.body);
   return { ...response, dom: parse(response.body) };
 }
-
-export function empty() {}

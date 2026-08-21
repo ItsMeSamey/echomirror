@@ -4,15 +4,23 @@ Bun CLI for mirroring EchoVideo/Echo360 recordings from every enrolled course, o
 
 ## Authentication
 
-Echo360 authentication is read from `./cookies` in the current working directory. The file contains the raw value of the `Cookie` request header; do not include the literal `Cookie:` prefix.
+Authentication is automatic. echomirror reads the Echo360 cookies from your existing Brave, Chrome, or Chromium profile. It does this safely by copying the profile's cookie database to a temporary directory and letting the browser decrypt its own snapshot; it does not open the login page in a new profile.
 
-To obtain it, login to Echo360, open DevTools -> Network, reload the page, select an Echo360 request, and copy the complete `Cookie` request-header value. Save it as `./cookies` or pass it once with:
+When the saved session is missing, expired, or rejected, echomirror opens this UQ Blackboard LTI placement in your normal browser:
+
+```text
+https://learn.uq.edu.au/webapps/blackboard/execute/blti/launchPlacement?blti_placement_id=_1088_1&content_id=_13163361_1&course_id=_206914_1&wrapped=true&from_ultra=true
+```
+
+Complete UQ login if prompted. echomirror waits for the resulting Echo360 cookie, stores it in `./cookies` with owner-only permissions, and continues. Use `--login` to force this refresh.
+
+Manual cookie input remains available as a fallback:
 
 ```sh
 bun run echomirror.ts --token 'PASTE_COOKIE_VALUE'
 ```
 
-`--token` validates the supplied cookie and stores it in `./cookies` for later runs. Cached cookies are validated again on restore. If an embedded CloudFront policy or `ECHO_JWT` expiry is already past, echomirror stops before making requests and asks for a fresh cookie. Lesson-page `Set-Cookie` values are merged automatically before HLS requests, and retries reload the lesson page so refreshed media authorization can be picked up.
+The visible login and cookie extraction both use the browser's `Default` profile. Set `ECHO_BROWSER_PROFILE` only if the intended profile has another on-disk name, such as `Profile 1`. `ECHO_BROWSER` and `ECHO_BROWSER_DATA_DIR` override browser discovery.
 
 ## CLI
 
@@ -76,9 +84,13 @@ On each run, echomirror finds a lesson ID in the ledger before downloading. If t
 
 The ledger root is the longest directory prefix before the first template field. Keep that static root the same if you want a new template to reuse/rename files recorded by the old template.
 
-## Concurrency
+## Native downloads and concurrency
 
-`ECHO_CONCURRENCY` controls recording-level concurrency (default `6`). `ECHO_HTTP_CONCURRENCY` is a global cap on Echo media HTTP requests and defaults to twice the recording concurrency (so `12` with the default settings). `ECHO_SEGMENT_CONCURRENCY` controls the number of workers inside one HLS stream (default `8`), but those workers still pass through the global HTTP cap. Streams within one recording are cached sequentially to avoid multiplying audio/video/subtitle fan-out.
+Media playlists, segments, captions, and keys are downloaded by the device's `curl`; `ffmpeg` only combines the local tracks into the final MP4. Both commands must be available on `PATH`.
+
+`ECHO_CONCURRENCY` controls recording-level concurrency (default `6`). `ECHO_CURL_CONCURRENCY` controls curl's parallel transfers within each recording (default `4`). Incomplete per-recording caches remain under `.partial` for a retry and are removed after a successful mux.
+
+Set `ECHO_LOG` to a filename if you want a debug log. Normal runs no longer create a large `log.log` automatically.
 
 ## Development checks
 

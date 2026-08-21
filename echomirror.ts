@@ -33,8 +33,16 @@ try {
   if (options.help || (!options.list && !options.all && !options.course)) {
     console.log(HELP_TEXT);
   } else {
-    const token = await loadToken(options.token);
-    const catalog = buildCourseCatalog(await fetchEnrollmentSections(token));
+    let token = await loadToken(options.token, { forceBrowser: options.login });
+    let sections;
+    try {
+      sections = await fetchEnrollmentSections(token);
+    } catch (error) {
+      if (options.token !== undefined || !(error instanceof Error) || !/HTTP 403|expired|invalid/i.test(error.message)) throw error;
+      token = await loadToken(undefined, { forceBrowser: true });
+      sections = await fetchEnrollmentSections(token);
+    }
+    const catalog = buildCourseCatalog(sections);
     if (options.list) {
       printCatalog(catalog);
     } else {

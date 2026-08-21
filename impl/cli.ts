@@ -7,6 +7,7 @@ export interface CliOptions {
   course?: string;
   dest: string;
   token?: string;
+  login: boolean;
 }
 
 export const HELP_TEXT = `Usage:
@@ -20,7 +21,8 @@ Options:
   --course <id>       Mirror one course. Accepts the ID printed by --list;
                       a course code is also accepted when it is unambiguous.
   --all               Mirror every enrolled course.
-  --token <cookie>    Echo Cookie request-header value. Stored in ./cookies.
+  --login             Open the browser and refresh the saved Echo session.
+  --token <cookie>    Raw Cookie header fallback. Stored in ./cookies.
   --dest <template>   Output path template. Relative templates are resolved from
                       the current directory. If no extension is present, .mp4 is added.
 
@@ -43,8 +45,10 @@ existing files instead of downloading them again.
 
 Environment:
   ECHO_CONCURRENCY       Recording jobs in flight (default 6)
-  ECHO_HTTP_CONCURRENCY  Global Echo media HTTP requests (default 2x jobs)
-  ECHO_SEGMENT_CONCURRENCY  Per-stream segment workers before the global cap (default 8)`;
+  ECHO_CURL_CONCURRENCY  Native curl transfers per recording (default 4)
+  ECHO_BROWSER           Brave/Chrome/Chromium executable override
+  ECHO_BROWSER_DATA_DIR  Browser user-data directory override
+  ECHO_BROWSER_PROFILE   Browser profile override (default: Default)`;
 
 function valueAfter(args: string[], index: number, option: string): [string, number] {
   const value = args[index + 1];
@@ -53,13 +57,14 @@ function valueAfter(args: string[], index: number, option: string): [string, num
 }
 
 export function parseCliArgs(args: string[]): CliOptions {
-  const options: CliOptions = { help: false, list: false, all: false, dest: DEFAULT_DEST_TEMPLATE };
+  const options: CliOptions = { help: false, list: false, all: false, login: false, dest: DEFAULT_DEST_TEMPLATE };
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!;
     if (arg === '--help' || arg === '-h') options.help = true;
     else if (arg === '--list') options.list = true;
     else if (arg === '--all') options.all = true;
+    else if (arg === '--login') options.login = true;
     else if (arg === '--course') {
       const [value, consumed] = valueAfter(args, index, '--course');
       options.course = value;

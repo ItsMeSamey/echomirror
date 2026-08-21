@@ -16,6 +16,6 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   },
-  "include": ["echomirror.ts", "impl/**/*.ts", "utils/**/*.ts", "types.d.ts"],
+  "include": ["echomirror.ts", "impl/**/*.ts", "utils/**/*.ts"],
   "exclude": ["node_modules", "dist", "tests"]
 }

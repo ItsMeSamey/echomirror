@@ -1,6 +1,4 @@
-'use strict';
 import { appendFileSync, writeFileSync } from 'node:fs';
-import { empty } from './common.js';
 import { writeTerminalLine } from './terminal.js';
 
 export enum LogLevel {
@@ -12,15 +10,15 @@ export enum LogLevel {
 }
 
 export interface Logger {
-  debug: (...args: any[]) => void;
-  verbose: (...args: any[]) => void;
-  info: (...args: any[]) => void;
-  warn: (...args: any[]) => void;
-  error: (...args: any[]) => void;
+  debug: (...args: unknown[]) => void;
+  verbose: (...args: unknown[]) => void;
+  info: (...args: unknown[]) => void;
+  warn: (...args: unknown[]) => void;
+  error: (...args: unknown[]) => void;
 }
 
-function stringifyArgs(args: any[]) {
-  return args.map((arg: any) => {
+function stringifyArgs(args: unknown[]) {
+  return args.map((arg: unknown) => {
     if (arg instanceof Error) return arg.stack || `${arg.name}: ${arg.message}`;
     if (typeof arg === 'object' && arg !== null) {
       try { return JSON.stringify(arg, null, 2); } catch { return String(arg); }
@@ -29,21 +27,27 @@ function stringifyArgs(args: any[]) {
   }).map(String).join(' ') + '\n';
 }
 
-export function getLogger(consoleLevel: LogLevel = LogLevel.info, fileLevel: LogLevel = LogLevel.debug, logFile = 'log.log'): Logger {
-  writeFileSync(logFile, '');
+const ignore = (..._args: unknown[]): void => {};
 
-  const make = (level: LogLevel, prefix: string) => (...args: any[]) => {
+export function getLogger(
+  consoleLevel: LogLevel = LogLevel.info,
+  logFile: string | undefined = process.env.ECHO_LOG,
+  fileLevel: LogLevel = LogLevel.debug,
+): Logger {
+  if (logFile) writeFileSync(logFile, '');
+
+  const make = (level: LogLevel, prefix: string) => (...args: unknown[]) => {
     const text = stringifyArgs(args);
     if (consoleLevel <= level) writeTerminalLine(text.trimEnd());
-    if (fileLevel <= level) appendFileSync(logFile, `[${prefix}]` + text);
+    if (logFile && fileLevel <= level) appendFileSync(logFile, `[${prefix}]` + text);
   };
 
   return {
-    debug: consoleLevel <= LogLevel.debug || fileLevel <= LogLevel.debug ? make(LogLevel.debug, 'debug') : empty,
-    verbose: consoleLevel <= LogLevel.verbose || fileLevel <= LogLevel.verbose ? make(LogLevel.verbose, 'verbose') : empty,
-    info: consoleLevel <= LogLevel.info || fileLevel <= LogLevel.info ? make(LogLevel.info, 'info') : empty,
-    warn: consoleLevel <= LogLevel.warn || fileLevel <= LogLevel.warn ? make(LogLevel.warn, 'warn') : empty,
-    error: consoleLevel <= LogLevel.error || fileLevel <= LogLevel.error ? make(LogLevel.error, 'error') : empty,
+    debug: consoleLevel <= LogLevel.debug || (Boolean(logFile) && fileLevel <= LogLevel.debug) ? make(LogLevel.debug, 'debug') : ignore,
+    verbose: consoleLevel <= LogLevel.verbose || (Boolean(logFile) && fileLevel <= LogLevel.verbose) ? make(LogLevel.verbose, 'verbose') : ignore,
+    info: consoleLevel <= LogLevel.info || (Boolean(logFile) && fileLevel <= LogLevel.info) ? make(LogLevel.info, 'info') : ignore,
+    warn: consoleLevel <= LogLevel.warn || (Boolean(logFile) && fileLevel <= LogLevel.warn) ? make(LogLevel.warn, 'warn') : ignore,
+    error: consoleLevel <= LogLevel.error || (Boolean(logFile) && fileLevel <= LogLevel.error) ? make(LogLevel.error, 'error') : ignore,
   };
 }
 

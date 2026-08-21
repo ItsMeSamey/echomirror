@@ -27,26 +27,23 @@ test('--token stores the cookie in ./cookies and later restores it', async () =>
   });
 });
 
-test('missing cookies file explains Network-tab extraction', async () => {
-  await inTempCwd(async () => {
-    await assert.rejects(loadToken(), error => {
-      assert.match(error.message, /save that value to \.\/cookies/i);
-      assert.match(error.message, /DevTools -> Network/);
-      assert.doesNotMatch(error.message, /document\.cookie/);
-      return true;
-    });
+test('missing cookies file captures and stores the existing browser session', async () => {
+  await inTempCwd(async dir => {
+    const cookie = await loadToken(undefined, { capture: async () => 'browser=session' });
+    assert.equal(cookie, 'browser=session');
+    assert.equal(readFileSync(join(dir, 'cookies'), 'utf8'), 'browser=session\n');
   });
 });
 
-test('cached cookies are checked for expiry when restored', async () => {
+test('expired cached cookies are refreshed from the browser', async () => {
   await inTempCwd(async dir => {
     const payload = Buffer.from(JSON.stringify({ exp: 1 })).toString('base64url');
     writeFileSync(join(dir, 'cookies'), `ECHO_JWT=x.${payload}.x\n`, 'utf8');
-    await assert.rejects(loadToken(), /Echo token expired at/);
+    assert.equal(await loadToken(undefined, { capture: async () => 'fresh=session' }), 'fresh=session');
   });
 });
 
-test('token help consistently names ./cookies', () => {
-  assert.match(TOKEN_HELP, /\.\/cookies/);
-  assert.doesNotMatch(TOKEN_HELP, /\.\/token/);
+test('token help describes automatic browser capture', () => {
+  assert.match(TOKEN_HELP, /opens a browser/i);
+  assert.match(TOKEN_HELP, /--token/);
 });

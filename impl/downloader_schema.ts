@@ -5,7 +5,7 @@ export interface Echo360Data {
   context: Context;
   chapters: null;
   copyrightData: CopyrightData;
-  polls: any[];
+  polls: unknown[];
   cookieRenewalIntervalMillis: number;
   heatmapData: number[];
   lesson: Lesson;
@@ -38,7 +38,7 @@ export interface Context {
 
 export interface CopyrightData {
   copyrightEnabled: boolean;
-  enabledPrivileges: any[];
+  enabledPrivileges: unknown[];
   restrictDownload: boolean;
   restrictUnauthenticatedViewing: boolean;
   enforceCopyrightAcknowledgement: boolean;
@@ -87,7 +87,7 @@ export interface Section {
   institutionId: string;
   courseId: string;
   termId: string;
-  scheduleIds: any[];
+  scheduleIds: unknown[];
   sectionNumber: string;
   description: string;
   gradeType: string;
@@ -111,7 +111,7 @@ export interface Term {
   institutionId: string;
   name: string;
   session: Session;
-  exceptions: any[];
+  exceptions: unknown[];
   sectionCount: number;
   lmsSelected: boolean;
   createdAt: string;
@@ -147,7 +147,7 @@ export interface User {
   email: string;
   currentRole: string;
   preference: Preference;
-  privileges: any[];
+  privileges: unknown[];
   institutions: InstitutionElement[];
   isLtiSession: boolean;
   lastName: string;
