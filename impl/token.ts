@@ -29,10 +29,17 @@ async function snapshotBrave(source: string, destination: string): Promise<void>
   for (const filename of ['Preferences', 'Secure Preferences']) {
     await copyIfPresent(join(source, PROFILE, filename), join(destination, PROFILE, filename));
   }
-  const sourceCookies = join(source, PROFILE, 'Network', 'Cookies');
-  const destinationCookies = join(destination, PROFILE, 'Network', 'Cookies');
-  if (!await copyIfPresent(sourceCookies, destinationCookies)) throw new Error(`Brave ${PROFILE} has no cookies.`);
-  for (const suffix of ['-wal', '-shm']) await copyIfPresent(sourceCookies + suffix, destinationCookies + suffix);
+  let copied = false;
+  for (const relative of [join('Network', 'Cookies'), 'Cookies']) {
+    const sourceCookies = join(source, PROFILE, relative);
+    const destinationCookies = join(destination, PROFILE, relative);
+    if (!await copyIfPresent(sourceCookies, destinationCookies)) continue;
+    copied = true;
+    for (const suffix of ['-wal', '-shm', '-journal']) {
+      await copyIfPresent(sourceCookies + suffix, destinationCookies + suffix);
+    }
+  }
+  if (!copied) throw new Error(`Brave ${PROFILE} has no cookie database.`);
 }
 
 async function devToolsPort(directory: string, child: ChildProcess): Promise<number> {
@@ -88,19 +95,36 @@ async function captureEchoCookie(): Promise<string> {
   });
   const dataDirectory = process.env.ECHO_BROWSER_DATA_DIR?.trim()
     || join(homedir(), '.config', 'BraveSoftware', 'Brave-Browser');
+  let lastFailure = 'no Echo360 cookies found';
+  const readValidCookie = async (): Promise<string | undefined> => {
+    try {
+      const cookie = await readBraveCookie(browser, dataDirectory);
+      if (!cookie) {
+        lastFailure = 'no Echo360 cookies found';
+        return undefined;
+      }
+      const response = await fetch(`https://${ECHO_HOST}/user/enrollments`, { headers: { Cookie: cookie } });
+      if (response.ok) return cookie;
+      lastFailure = `Echo360 rejected the browser cookies with HTTP ${response.status}`;
+    } catch (error) {
+      lastFailure = error instanceof Error ? error.message : String(error);
+    }
+    return undefined;
+  };
+
+  const existing = await readValidCookie();
+  if (existing) return existing;
+
   const opener = spawn(browser, [`--profile-directory=${PROFILE}`, LOGIN_URL], { detached: true, stdio: 'ignore' });
   opener.unref();
   process.stderr.write(`Opened UQ Echo360 in Brave's ${PROFILE} profile. Complete login if prompted…\n`);
 
   for (let attempt = 0; attempt < 150; attempt += 1) {
-    const cookie = await readBraveCookie(browser, dataDirectory).catch(() => undefined);
-    if (cookie) {
-      const response = await fetch(`https://${ECHO_HOST}/user/enrollments`, { headers: { Cookie: cookie } }).catch(() => undefined);
-      if (response?.ok) return cookie;
-    }
+    const cookie = await readValidCookie();
+    if (cookie) return cookie;
     await sleep(2_000);
   }
-  throw new Error(`Timed out waiting for a valid Echo360 cookie in Brave's ${PROFILE} profile.`);
+  throw new Error(`Timed out waiting for a valid Echo360 cookie in Brave's ${PROFILE} profile: ${lastFailure}.`);
 }
 
 export const COOKIE_FILE = 'cookies';
