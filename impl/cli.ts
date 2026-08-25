@@ -46,7 +46,7 @@ existing files instead of downloading them again.
 
 Environment:
   ECHO_CONCURRENCY       Recording jobs in flight (default 6)
-  ECHO_BROWSER           Brave executable override
+  ECHO_BROWSER           Chromium-browser executable override
   ECHO_BROWSER_DATA_DIR  Browser user-data directory override
 `;
 

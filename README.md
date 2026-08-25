@@ -4,7 +4,16 @@ Bun CLI for mirroring EchoVideo/Echo360 recordings from every enrolled course, o
 
 ## Authentication
 
-Authentication is automatic. echomirror reads Echo360 cookies from Brave's `Default` profile. It copies the cookie database to a temporary directory and lets Brave decrypt that snapshot; the visible login always opens in the real `Default` profile.
+Authentication is automatic. echomirror discovers profiles from Chrome, Chromium, Brave, Microsoft Edge, Vivaldi, and Opera on Linux, macOS, and Windows. It copies the selected profile's cookie database to a temporary directory and lets that browser decrypt the snapshot; any visible login opens in the real browser profile.
+
+Supported browsers:
+
+- Google Chrome
+- Chromium
+- Brave
+- Microsoft Edge
+- Vivaldi
+- Opera
 
 When the saved session is missing, expired, or rejected, echomirror opens this UQ Blackboard LTI placement in your normal browser:
 
@@ -20,7 +29,7 @@ Manual cookie input remains available as a fallback:
 bun run echomirror.ts --token 'PASTE_COOKIE_VALUE'
 ```
 
-`ECHO_BROWSER` and `ECHO_BROWSER_DATA_DIR` override the Brave executable and user-data directory if needed.
+`ECHO_BROWSER` and `ECHO_BROWSER_DATA_DIR` override automatic browser and user-data-directory discovery if needed.
 
 ## CLI
 
