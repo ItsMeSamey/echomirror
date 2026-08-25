@@ -4,7 +4,7 @@ Bun CLI for mirroring EchoVideo/Echo360 recordings from every enrolled course, o
 
 ## Authentication
 
-Authentication is automatic. echomirror discovers profiles from Chrome, Chromium, Brave, Microsoft Edge, Vivaldi, and Opera on Linux, macOS, and Windows. It copies the selected profile's cookie database to a temporary directory and lets that browser decrypt the snapshot; any visible login opens in the real browser profile.
+Authentication is automatic. echomirror discovers profiles from Chrome, Chromium, Brave, Microsoft Edge, Vivaldi, and Opera on Linux, macOS, and Windows. 
 
 Supported browsers:
 
@@ -104,9 +104,9 @@ Set `ECHO_LOG` to a filename if you want a debug log. Normal runs no longer crea
 ## Development checks
 
 ```sh
-npm run typecheck
-npm test
-npm run build
+bun run typecheck
+bun test
+bun run build
 ```
 
 The source is written to run directly under Bun as `bun run echomirror.ts`; the TypeScript build also emits `dist/echomirror.js` for Node-compatible regression testing.
@@ -115,16 +115,3 @@ The source is written to run directly under Bun as `bun run echomirror.ts`; the 
 ## Recovery behavior
 
 If Echo returns a media `403`, echomirror treats it as a retryable media-authorization failure. A retry rebuilds the lesson task from the Echo lesson page instead of reusing stale HLS URLs/cookies. Compact UQ labels such as `COMP2701_S1_2026_STLUCIA_22477_IN_01` are also recognized for course/term metadata; when an enrollment omits term metadata entirely, the year/semester is inferred from the recording dates. Default section capture labels are not used as `{lecname}`.
-
-## Skip reporting and terminal output
-
-Interactive runs use a single transient status line instead of a multi-line cursor-rewriting display. Permanent messages clear and redraw that line, so warnings and errors do not become interleaved with progress output.
-
-Every skipped recording is printed with its reason, for example:
-
-```text
-SKIP 2026_1/comp2701/recordings/03_01_lecture.mp4 — Echo player reports no downloadable video for this lesson
-SKIP 2026_1/comp2701/recordings/04_01_parsing.mp4 — destination already exists
-```
-
-A player lesson that has no downloadable media is distinct from an already-present destination in the final summary.
