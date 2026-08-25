@@ -35,11 +35,21 @@ test('missing cookies file captures and stores the existing browser session', as
   });
 });
 
-test('expired cached cookies are refreshed from the browser', async () => {
+test('cached cookies are left for Echo to validate authoritatively', async () => {
   await inTempCwd(async dir => {
     const payload = Buffer.from(JSON.stringify({ exp: 1 })).toString('base64url');
     writeFileSync(join(dir, 'cookies'), `ECHO_JWT=x.${payload}.x\n`, 'utf8');
-    assert.equal(await loadToken(undefined, { capture: async () => 'fresh=session' }), 'fresh=session');
+    assert.equal(await loadToken(undefined, { capture: async () => 'unused=session' }), `ECHO_JWT=x.${payload}.x`);
+  });
+});
+
+test('expired renewable CloudFront media policy does not invalidate Echo login', async () => {
+  await inTempCwd(async () => {
+    const policy = Buffer.from(JSON.stringify({
+      Statement: [{ Condition: { DateLessThan: { 'AWS:EpochTime': 1 } } }],
+    })).toString('base64').replaceAll('=', '_').replaceAll('+', '-').replaceAll('/', '~');
+    const cookie = `session=valid; CloudFront-Policy=${policy}`;
+    assert.equal(await loadToken(cookie), cookie);
   });
 });
 

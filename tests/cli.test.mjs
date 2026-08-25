@@ -22,6 +22,11 @@ test('CLI can force browser reauthentication', () => {
   assert.equal(parseCliArgs(['--list', '--login']).login, true);
 });
 
+test('help documents standalone browser login', async () => {
+  const { HELP_TEXT } = await import('../dist/impl/cli.js');
+  assert.match(HELP_TEXT, /\.\/echomirror\.ts --login/);
+});
+
 test('CLI rejects conflicting selections', () => {
   assert.throws(() => parseCliArgs(['--all', '--course', 'comp4403']), /either --all or --course/);
 });

@@ -5,8 +5,6 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import CDP from 'chrome-remote-interface';
 
-import { cloudFrontCookieExpiry, cookieMap } from './auth.js';
-
 const ECHO_HOST = 'echo360.net.au';
 const LOGIN_URL = 'https://learn.uq.edu.au/webapps/blackboard/execute/blti/launchPlacement?blti_placement_id=_1088_1&content_id=_13163361_1&course_id=_206914_1&wrapped=true&from_ultra=true';
 const PROFILE = 'Default';
@@ -103,9 +101,15 @@ async function captureEchoCookie(): Promise<string> {
         lastFailure = 'no Echo360 cookies found';
         return undefined;
       }
-      const response = await fetch(`https://${ECHO_HOST}/user/enrollments`, { headers: { Cookie: cookie } });
-      if (response.ok) return cookie;
-      lastFailure = `Echo360 rejected the browser cookies with HTTP ${response.status}`;
+      const response = await fetch(`https://${ECHO_HOST}/user/enrollments`, {
+        headers: { Cookie: cookie },
+        redirect: 'manual',
+      });
+      const isJson = response.headers.get('content-type')?.includes('json') === true;
+      if (response.status === 200 && isJson) return cookie;
+      lastFailure = response.status >= 300 && response.status < 400
+        ? 'Echo360 redirected the browser session to login'
+        : `Echo360 rejected the browser cookies with HTTP ${response.status}${isJson ? '' : ' (non-JSON response)'}`;
     } catch (error) {
       lastFailure = error instanceof Error ? error.message : String(error);
     }
@@ -133,26 +137,6 @@ export const TOKEN_HELP = `echomirror normally opens a browser and captures the 
 Set ECHO_BROWSER if Brave is not installed at /usr/bin/brave.
 You can still pass a raw Cookie request-header value with --token as a fallback.`;
 
-function expiry(cookie: string): Date | undefined {
-  const cf = cloudFrontCookieExpiry(cookie);
-  if (cf) return cf;
-  const jwt = cookieMap(cookie).get('ECHO_JWT');
-  if (!jwt) return undefined;
-  try {
-    const payload = JSON.parse(atob(jwt.split('.')[1]!.replace(/-/g, '+').replace(/_/g, '/')));
-    return payload.exp ? new Date(payload.exp * 1000) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-export function assertTokenValid(cookie: string): void {
-  const exp = expiry(cookie);
-  if (exp && exp.getTime() <= Date.now()) {
-    throw new Error(`Echo token expired at ${exp.toISOString()}.\n${TOKEN_HELP}`);
-  }
-}
-
 function normalizeCookie(value: string): string {
   return value.trim();
 }
@@ -168,16 +152,10 @@ export async function loadToken(provided?: string, options: TokenOptions = {}): 
   if (provided !== undefined) {
     cookie = normalizeCookie(provided);
     if (!cookie) throw new Error(`No Echo token provided.\n${TOKEN_HELP}`);
-    assertTokenValid(cookie);
     writeFileSync(COOKIE_FILE, cookie + '\n', { encoding: 'utf8', mode: 0o600 });
   } else if (!options.forceBrowser && existsSync(COOKIE_FILE)) {
     cookie = normalizeCookie(readFileSync(COOKIE_FILE, 'utf8'));
-    try {
-      assertTokenValid(cookie);
-      return cookie;
-    } catch {
-      cookie = undefined;
-    }
+    if (cookie) return cookie;
   }
 
   if (!cookie) {
@@ -185,6 +163,5 @@ export async function loadToken(provided?: string, options: TokenOptions = {}): 
     if (!cookie) throw new Error(`Browser returned no Echo token.\n${TOKEN_HELP}`);
     writeFileSync(COOKIE_FILE, cookie + '\n', { encoding: 'utf8', mode: 0o600 });
   }
-  assertTokenValid(cookie);
   return cookie;
 }

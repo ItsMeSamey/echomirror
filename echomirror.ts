@@ -32,7 +32,8 @@ function printCatalog(catalog: CourseCatalogEntry[]): void {
 
 try {
   const options = parseCliArgs(process.argv.slice(2));
-  if (options.help || (!options.list && !options.all && !options.course)) {
+  const hasAction = options.login || options.list || options.all || options.course !== undefined;
+  if (options.help || !hasAction) {
     console.log(HELP_TEXT);
   } else {
     let token = await loadToken(options.token, { forceBrowser: options.login });
@@ -44,10 +45,13 @@ try {
       token = await loadToken(undefined, { forceBrowser: true });
       sections = await fetchEnrollmentSections(token);
     }
-    const catalog = buildCourseCatalog(sections);
-    if (options.list) {
+    if (options.login && !options.list && !options.all && !options.course) {
+      writeTerminalLine('Echo360 login refreshed successfully.');
+    } else if (options.list) {
+      const catalog = buildCourseCatalog(sections);
       printCatalog(catalog);
     } else {
+      const catalog = buildCourseCatalog(sections);
       validateDestTemplate(options.dest);
       const selected = options.all ? catalog : [selectCourse(catalog, options.course!)];
       const concurrency = positiveInt(process.env.ECHO_CONCURRENCY, 6);

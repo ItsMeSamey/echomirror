@@ -1,11 +1,11 @@
-import { mkdir, rename, rm } from 'node:fs/promises';
+import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { execa } from 'execa';
 import { fetchHtmlResponse } from '../utils/common.js';
 import logger from '../utils/logger.js';
-import { clearTerminalStatus, setTerminalStatus } from '../utils/terminal.js';
+import { createByteProgress, createDownloadProgress } from '../utils/progress.js';
 import { cloudFrontCookieExpiry, getSetCookieHeaders, mergeSetCookies } from './auth.js';
-import { assertTokenValid, TOKEN_HELP } from './token.js';
+import { TOKEN_HELP } from './token.js';
 
 interface Echo360Data {
   readonly captions?: string;
@@ -29,7 +29,9 @@ export class SkippedDownload {
 
 function durationSeconds(value: string): number | undefined {
   const numeric = Number(value);
-  if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  if (Number.isFinite(numeric) && numeric > 0) return numeric > 86_400 ? numeric / 1_000 : numeric;
+  const iso = value.match(/^PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?$/i);
+  if (iso) return Number(iso[1] ?? 0) * 3600 + Number(iso[2] ?? 0) * 60 + Number(iso[3] ?? 0) || undefined;
   const parts = value.split(':').map(Number);
   if (parts.some(part => !Number.isFinite(part))) return undefined;
   return parts.reduce((total, part) => total * 60 + part, 0) || undefined;
@@ -43,45 +45,137 @@ class EchoDownload {
     private readonly duration?: number,
   ) {}
 
+  private async runFfmpeg(args: string[], label: string, output: string, totalBytes: number): Promise<void> {
+    const subprocess = execa('ffmpeg', ['-hide_banner', '-loglevel', 'error', ...args], {
+      stdout: 'ignore',
+      stderr: 'pipe',
+    });
+    const progress = createByteProgress(label, totalBytes);
+    let done = false;
+    let failure: unknown;
+    const completion = subprocess.then(
+      () => undefined,
+      error => { failure = error; },
+    ).finally(() => { done = true; });
+    try {
+      while (!done) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        progress.update(await stat(output).then(info => info.size).catch(() => 0));
+      }
+      await completion;
+      if (failure) throw failure;
+      progress.update(totalBytes);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } finally {
+      progress.close();
+    }
+  }
+
+  private async resolveAssetUrl(stream: MediaStream): Promise<string> {
+    if (stream.kind === 'subtitle') return stream.url;
+
+    const masterResponse = await fetch(stream.url, { headers: this.headers });
+    if (!masterResponse.ok) throw new Error(`Failed to fetch HLS manifest: HTTP ${masterResponse.status}`);
+    const master = await masterResponse.text();
+    const masterLines = master.split(/\r?\n/);
+    const variants: Array<{ score: number; url: string }> = [];
+    for (let index = 0; index < masterLines.length; index += 1) {
+      const attributes = masterLines[index];
+      if (!attributes?.startsWith('#EXT-X-STREAM-INF:')) continue;
+      const relative = masterLines.slice(index + 1).find(line => line.length > 0 && !line.startsWith('#'));
+      if (!relative) continue;
+      const resolution = attributes.match(/RESOLUTION=(\d+)x(\d+)/);
+      const pixels = Number(resolution?.[1] ?? 0) * Number(resolution?.[2] ?? 0);
+      const bandwidth = Number(attributes.match(/(?:^|[:,])BANDWIDTH=(\d+)/)?.[1] ?? 0);
+      variants.push({ score: pixels * 1_000_000 + bandwidth, url: new URL(relative, stream.url).href });
+    }
+
+    const playlistUrl = variants.sort((left, right) => right.score - left.score)[0]?.url ?? stream.url;
+    const playlistResponse = await fetch(playlistUrl, { headers: this.headers });
+    if (!playlistResponse.ok) throw new Error(`Failed to fetch HLS playlist: HTTP ${playlistResponse.status}`);
+    const playlist = await playlistResponse.text();
+    const assets = playlist.split(/\r?\n/)
+      .filter(line => line.length > 0 && !line.startsWith('#'))
+      .map(line => new URL(line, playlistUrl).href);
+    const uniqueAssets = [...new Set(assets)];
+    if (!playlist.includes('#EXT-X-BYTERANGE:') || uniqueAssets.length !== 1) {
+      throw new Error('Echo returned an unsupported non-byte-range HLS playlist');
+    }
+    return uniqueAssets[0]!;
+  }
+
+  private async contentLength(url: string): Promise<number | undefined> {
+    try {
+      const response = await fetch(url, { method: 'HEAD', headers: this.headers });
+      const length = Number(response.headers.get('content-length'));
+      return response.ok && Number.isFinite(length) && length > 0 ? length : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async downloadWithCurl(url: string, output: string, label: string): Promise<void> {
+    const total = await this.contentLength(url);
+    const progress = createByteProgress(label, total);
+    const args = ['--fail', '--location', '--silent', '--show-error'];
+    for (const [name, value] of Object.entries(this.headers)) args.push('--header', `${name}: ${value}`);
+    args.push('--output', output, url);
+    const subprocess = execa('curl', args, { stdout: 'ignore', stderr: 'pipe' });
+    let done = false;
+    let failure: unknown;
+    const completion = subprocess.then(
+      () => undefined,
+      error => { failure = error; },
+    ).finally(() => { done = true; });
+    try {
+      while (!done) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const size = await stat(output).then(info => info.size).catch(() => 0);
+        progress.update(size);
+      }
+      await completion;
+      if (failure) throw failure;
+      progress.update(total ?? await stat(output).then(info => info.size));
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } finally {
+      progress.close();
+    }
+  }
+
+  private async downloadComponent(stream: MediaStream, index: number, ordinal: number, directory: string): Promise<string> {
+    const component = stream.kind === 'video' ? `video-${index}.mkv`
+      : stream.kind === 'audio' ? `audio-${index}.mka`
+      : `subtitle-${index}.vtt`;
+    const output = path.join(directory, component);
+    const label = `${path.basename(this.destination)} · ${stream.kind} ${ordinal}`;
+    await this.downloadWithCurl(await this.resolveAssetUrl(stream), output, label);
+    return output;
+  }
+
   async download(): Promise<void> {
     await mkdir(path.dirname(this.destination), { recursive: true });
     const extension = path.extname(this.destination) || '.mp4';
     const temporary = path.join(path.dirname(this.destination), `.${path.basename(this.destination, extension)}.part${extension}`);
+    const components = `${temporary}.components`;
     await rm(temporary, { force: true });
-
-    const args = ['-hide_banner', '-loglevel', 'error', '-progress', 'pipe:2'];
-    const headers = Object.entries(this.headers).map(([name, value]) => `${name}: ${value}`).join('\r\n');
-    for (const stream of this.streams) {
-      args.push('-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5');
-      if (headers) args.push('-headers', headers);
-      args.push('-i', stream.url);
-    }
-    this.streams.forEach((stream, index) => args.push('-map', `${index}:${stream.kind[0]}`));
-    if (this.streams.some(stream => stream.kind === 'video')) args.push('-c:v', 'copy');
-    if (this.streams.some(stream => stream.kind === 'audio')) args.push('-c:a', 'copy');
-    if (this.streams.some(stream => stream.kind === 'subtitle')) args.push('-c:s', 'mov_text');
-    args.push('-y', temporary);
-
-    const subprocess = execa('ffmpeg', args, { stdout: 'ignore', stderr: 'pipe' });
-    const label = path.basename(this.destination);
-    setTerminalStatus(`[${' '.repeat(24)}] preparing ${label}`);
+    await rm(components, { recursive: true, force: true });
+    await mkdir(components, { recursive: true });
     try {
-      for await (const line of subprocess.iterable({ from: 'stderr' })) {
-        if (!line.startsWith('out_time_us=')) continue;
-        const current = Number(line.slice('out_time_us='.length)) / 1_000_000;
-        if (this.duration) {
-          const ratio = Math.min(1, current / this.duration);
-          const complete = Math.round(ratio * 24);
-          setTerminalStatus(`[${'='.repeat(complete)}${' '.repeat(24 - complete)}] ${Math.round(ratio * 100)}% ${label}`);
-        } else {
-          const position = Math.floor(current) % 24;
-          setTerminalStatus(`[${' '.repeat(position)}>${' '.repeat(23 - position)}] ${Math.floor(current)}s ${label}`);
-        }
-      }
-      await subprocess;
+      const counts: Record<MediaStream['kind'], number> = { video: 0, audio: 0, subtitle: 0 };
+      const files = await Promise.all(this.streams.map((stream, index) => {
+        counts[stream.kind] += 1;
+        return this.downloadComponent(stream, index, counts[stream.kind], components);
+      }));
+      const args = files.flatMap(file => ['-i', file]);
+      this.streams.forEach((stream, index) => args.push('-map', `${index}:${stream.kind[0]}:0`));
+      args.push('-c:v', 'copy', '-c:a', 'copy');
+      if (this.streams.some(stream => stream.kind === 'subtitle')) args.push('-c:s', 'mov_text');
+      args.push('-y', temporary);
+      const totalBytes = (await Promise.all(files.map(file => stat(file)))).reduce((sum, info) => sum + info.size, 0);
+      await this.runFfmpeg(args, `${path.basename(this.destination)} · mux`, temporary, totalBytes);
       await rename(temporary, this.destination);
     } finally {
-      clearTerminalStatus();
+      await rm(components, { recursive: true, force: true });
     }
   }
 }
@@ -107,7 +201,6 @@ function parsePlayerData(htmlScripts: string[]): Echo360Data | undefined {
 }
 
 export async function getPageSession(url: string, cookie: string): Promise<EchoPageSession | undefined> {
-  assertTokenValid(cookie);
   logger.verbose('Fetching lesson page: ' + url);
   let response;
   try {

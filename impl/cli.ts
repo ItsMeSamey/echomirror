@@ -11,6 +11,7 @@ export interface CliOptions {
 }
 
 export const HELP_TEXT = `Usage:
+  ./echomirror.ts --login
   bun run echomirror.ts --list
   bun run echomirror.ts --course <id> [--dest <template>]
   bun run echomirror.ts --all [--dest <template>]

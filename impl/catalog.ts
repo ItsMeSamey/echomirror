@@ -1,7 +1,7 @@
 import { fetchJson } from '../utils/common.js';
 import logger from '../utils/logger.js';
 import { normalizeCourseCode, termParts } from './naming.js';
-import { assertTokenValid, TOKEN_HELP } from './token.js';
+import { TOKEN_HELP } from './token.js';
 
 export interface EnrollmentSection {
   sectionId: string;
@@ -163,7 +163,6 @@ export function selectCourse(catalog: CourseCatalogEntry[], selector: string): C
 }
 
 export async function fetchEnrollmentSections(cookie: string): Promise<EnrollmentSection[]> {
-  assertTokenValid(cookie);
   logger.info('Fetching all Echo360 enrollments...');
   let response;
   try {
@@ -174,7 +173,7 @@ export async function fetchEnrollmentSections(cookie: string): Promise<Enrollmen
       },
     });
   } catch (error) {
-    if (error instanceof Error && /status:\s*403\b/i.test(error.message)) {
+    if (error instanceof Error && (/status:\s*403\b/i.test(error.message) || /Expected JSON/i.test(error.message))) {
       throw new Error(`Echo360 rejected ./cookies with HTTP 403; the cookie is expired or invalid.\n${TOKEN_HELP}`);
     }
     throw error;
