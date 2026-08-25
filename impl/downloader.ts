@@ -3,14 +3,13 @@ import path from 'node:path';
 import { execa } from 'execa';
 import { fetchHtmlResponse } from '../utils/common.js';
 import logger from '../utils/logger.js';
-import { createByteProgress, createDownloadProgress } from '../utils/progress.js';
+import { createByteProgress } from '../utils/progress.js';
 import { cloudFrontCookieExpiry, getSetCookieHeaders, mergeSetCookies } from './auth.js';
 import { TOKEN_HELP } from './token.js';
 
 interface Echo360Data {
   readonly captions?: string;
   readonly video?: {
-    readonly duration: string;
     readonly playableMedias: ReadonlyArray<{
       readonly uri: string;
       readonly trackType: readonly string[];
@@ -27,22 +26,11 @@ export class SkippedDownload {
   constructor(readonly skipReason: string) {}
 }
 
-function durationSeconds(value: string): number | undefined {
-  const numeric = Number(value);
-  if (Number.isFinite(numeric) && numeric > 0) return numeric > 86_400 ? numeric / 1_000 : numeric;
-  const iso = value.match(/^PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?$/i);
-  if (iso) return Number(iso[1] ?? 0) * 3600 + Number(iso[2] ?? 0) * 60 + Number(iso[3] ?? 0) || undefined;
-  const parts = value.split(':').map(Number);
-  if (parts.some(part => !Number.isFinite(part))) return undefined;
-  return parts.reduce((total, part) => total * 60 + part, 0) || undefined;
-}
-
 class EchoDownload {
   constructor(
     private readonly streams: readonly MediaStream[],
     private readonly destination: string,
     private readonly headers: Readonly<Record<string, string>>,
-    private readonly duration?: number,
   ) {}
 
   private async runFfmpeg(args: string[], label: string, output: string, totalBytes: number): Promise<void> {
@@ -255,7 +243,7 @@ function createEcho360DownloadFromSession(session: EchoPageSession, pageUrl: str
     Referer: pageUrl,
     Origin: 'https://echo360.net.au',
     Accept: '*/*',
-  }, durationSeconds(data.video.duration));
+  });
 }
 
 export async function createEcho360Download(

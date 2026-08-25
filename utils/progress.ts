@@ -3,16 +3,6 @@ import { MultiBar, type SingleBar } from 'cli-progress';
 let renderer: MultiBar | undefined;
 const bars = new Set<SingleBar>();
 
-function formatTime(seconds: number): string {
-  const whole = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(whole / 3600);
-  const minutes = Math.floor((whole % 3600) / 60);
-  const remainder = whole % 60;
-  return hours
-    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
-    : `${minutes}:${String(remainder).padStart(2, '0')}`;
-}
-
 function progressRenderer(): MultiBar {
   renderer ??= new MultiBar({
     format: '{bar} {percentage}% │ {time} │ {name}',
@@ -30,7 +20,7 @@ function progressRenderer(): MultiBar {
 }
 
 export interface DownloadProgress {
-  update(seconds: number): void;
+  update(bytes: number): void;
   close(): void;
 }
 
@@ -43,33 +33,6 @@ function formatBytes(bytes: number): string {
     unit += 1;
   }
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
-
-export function createDownloadProgress(name: string, duration?: number): DownloadProgress {
-  const knownDuration = duration !== undefined && duration > 0;
-  const total = knownDuration ? duration : 28;
-  const currentRenderer = progressRenderer();
-  const bar = currentRenderer.create(total, 0, { name, time: '0:00' }, knownDuration ? undefined : {
-    format: '{bar} │ {time} │ {name}',
-  });
-  bars.add(bar);
-
-  return {
-    update(seconds: number): void {
-      bar.update(knownDuration ? Math.min(seconds, total) : Math.floor(seconds) % total, {
-        name,
-        time: formatTime(seconds),
-      });
-    },
-    close(): void {
-      if (!bars.delete(bar)) return;
-      currentRenderer.remove(bar);
-      if (!bars.size) {
-        currentRenderer.stop();
-        if (renderer === currentRenderer) renderer = undefined;
-      }
-    },
-  };
 }
 
 export function createByteProgress(name: string, totalBytes?: number): DownloadProgress {
