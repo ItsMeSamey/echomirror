@@ -21,8 +21,6 @@ interface BrowserProfile extends BrowserInstallation {
 }
 
 interface ChromiumCookie {
-  readonly domain: string;
-  readonly expires?: number;
   readonly name: string;
   readonly value: string;
 }
@@ -46,11 +44,16 @@ function browserDefinitions(): readonly BrowserInstallation[] {
         { name: 'Microsoft Edge', executable: join(programFilesX86, 'Microsoft', 'Edge', 'Application', 'msedge.exe'), dataDirectory: join(local, 'Microsoft', 'Edge', 'User Data') },
         { name: 'Microsoft Edge', executable: join(programFiles, 'Microsoft', 'Edge', 'Application', 'msedge.exe'), dataDirectory: join(local, 'Microsoft', 'Edge', 'User Data') },
         { name: 'Microsoft Edge', executable: join(local, 'Microsoft', 'Edge', 'Application', 'msedge.exe'), dataDirectory: join(local, 'Microsoft', 'Edge', 'User Data') },
+        { name: 'Chromium', executable: join(local, 'Chromium', 'Application', 'chrome.exe'), dataDirectory: join(local, 'Chromium', 'User Data') },
+        { name: 'Chromium', executable: join(programFiles, 'Chromium', 'Application', 'chrome.exe'), dataDirectory: join(local, 'Chromium', 'User Data') },
+        { name: 'Chromium', executable: join(programFilesX86, 'Chromium', 'Application', 'chrome.exe'), dataDirectory: join(local, 'Chromium', 'User Data') },
         { name: 'Chromium', executable: 'chromium.exe', dataDirectory: join(local, 'Chromium', 'User Data') },
         { name: 'Vivaldi', executable: join(local, 'Vivaldi', 'Application', 'vivaldi.exe'), dataDirectory: join(local, 'Vivaldi', 'User Data') },
         { name: 'Vivaldi', executable: join(programFiles, 'Vivaldi', 'Application', 'vivaldi.exe'), dataDirectory: join(local, 'Vivaldi', 'User Data') },
+        { name: 'Vivaldi', executable: join(programFilesX86, 'Vivaldi', 'Application', 'vivaldi.exe'), dataDirectory: join(local, 'Vivaldi', 'User Data') },
         { name: 'Opera', executable: join(local, 'Programs', 'Opera', 'opera.exe'), dataDirectory: join(roaming, 'Opera Software', 'Opera Stable') },
         { name: 'Opera', executable: join(programFiles, 'Opera', 'opera.exe'), dataDirectory: join(roaming, 'Opera Software', 'Opera Stable') },
+        { name: 'Opera', executable: join(programFilesX86, 'Opera', 'opera.exe'), dataDirectory: join(roaming, 'Opera Software', 'Opera Stable') },
       ];
     case 'darwin': {
       const support = join(home, 'Library', 'Application Support');
@@ -65,15 +68,16 @@ function browserDefinitions(): readonly BrowserInstallation[] {
       ];
       return browsers.flatMap(browser => apps.map(root => ({ name: browser.name, executable: join(root, browser.app), dataDirectory: browser.dataDirectory })));
     }
-    default: {
+    case 'linux': {
       const config = process.env.XDG_CONFIG_HOME ?? join(home, '.config');
+      const chromeConfig = process.env.CHROME_CONFIG_HOME ?? config;
       return [
         { name: 'Brave', executable: 'brave-browser', dataDirectory: join(config, 'BraveSoftware', 'Brave-Browser') },
         { name: 'Brave', executable: 'brave', dataDirectory: join(config, 'BraveSoftware', 'Brave-Browser') },
-        { name: 'Google Chrome', executable: 'google-chrome', dataDirectory: join(config, 'google-chrome') },
-        { name: 'Google Chrome', executable: 'google-chrome-stable', dataDirectory: join(config, 'google-chrome') },
-        { name: 'Chromium', executable: 'chromium', dataDirectory: join(config, 'chromium') },
-        { name: 'Chromium', executable: 'chromium-browser', dataDirectory: join(config, 'chromium') },
+        { name: 'Google Chrome', executable: 'google-chrome', dataDirectory: join(chromeConfig, 'google-chrome') },
+        { name: 'Google Chrome', executable: 'google-chrome-stable', dataDirectory: join(chromeConfig, 'google-chrome') },
+        { name: 'Chromium', executable: 'chromium', dataDirectory: join(chromeConfig, 'chromium') },
+        { name: 'Chromium', executable: 'chromium-browser', dataDirectory: join(chromeConfig, 'chromium') },
         { name: 'Microsoft Edge', executable: 'microsoft-edge', dataDirectory: join(config, 'microsoft-edge') },
         { name: 'Microsoft Edge', executable: 'microsoft-edge-stable', dataDirectory: join(config, 'microsoft-edge') },
         { name: 'Vivaldi', executable: 'vivaldi', dataDirectory: join(config, 'vivaldi') },
@@ -81,6 +85,8 @@ function browserDefinitions(): readonly BrowserInstallation[] {
         { name: 'Opera', executable: 'opera', dataDirectory: join(config, 'opera') },
       ];
     }
+    default:
+      return [];
   }
 }
 
@@ -119,15 +125,18 @@ async function profilesIn(dataDirectory: string): Promise<string[]> {
 async function discoverBrowserProfiles(): Promise<BrowserProfile[]> {
   const browserOverride = process.env.ECHO_BROWSER?.trim();
   const dataOverride = process.env.ECHO_BROWSER_DATA_DIR?.trim();
-  const definitions = browserOverride
-    ? [{ name: 'Chromium browser', executable: browserOverride, dataDirectory: dataOverride ?? browserDefinitions()[0]?.dataDirectory ?? '' }]
-    : browserDefinitions().map(browser => dataOverride ? { ...browser, dataDirectory: dataOverride } : browser);
+  if (Boolean(browserOverride) !== Boolean(dataOverride)) {
+    throw new Error('ECHO_BROWSER and ECHO_BROWSER_DATA_DIR must be set together.');
+  }
+  const definitions = browserOverride && dataOverride
+    ? [{ name: 'Chromium browser', executable: browserOverride, dataDirectory: dataOverride }]
+    : browserDefinitions();
 
   const installations: BrowserInstallation[] = [];
   const seen = new Set<string>();
   for (const definition of definitions) {
     const executable = await executablePath(definition.executable);
-    if (!executable || !definition.dataDirectory || !existsSync(definition.dataDirectory)) continue;
+    if (!executable || !definition.dataDirectory) continue;
     const key = `${executable}\0${definition.dataDirectory}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -136,7 +145,8 @@ async function discoverBrowserProfiles(): Promise<BrowserProfile[]> {
 
   const profiles: BrowserProfile[] = [];
   for (const browser of installations) {
-    for (const profile of await profilesIn(browser.dataDirectory)) profiles.push({ ...browser, profile });
+    const discovered = await profilesIn(browser.dataDirectory);
+    for (const profile of discovered.length > 0 ? discovered : ['Default']) profiles.push({ ...browser, profile });
   }
   return profiles;
 }
@@ -182,6 +192,19 @@ async function devToolsPort(directory: string, child: ChildProcess, name: string
   throw new Error(`${name} cookie reader did not start.`);
 }
 
+async function echoCookieFrom(client: Awaited<ReturnType<typeof CDP>>): Promise<string | undefined> {
+  const { cookies } = await client.Network.getCookies({ urls: [`https://${ECHO_HOST}/user/enrollments`] }) as { cookies: ChromiumCookie[] };
+  return cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ') || undefined;
+}
+
+async function validateEchoCookie(cookie: string): Promise<string | undefined> {
+  const response = await fetch(`https://${ECHO_HOST}/user/enrollments`, {
+    headers: { Cookie: cookie },
+    redirect: 'manual',
+  });
+  return response.status === 200 && response.headers.get('content-type')?.includes('json') === true ? cookie : undefined;
+}
+
 async function readChromiumCookie(source: BrowserProfile): Promise<string | undefined> {
   const snapshot = await mkdtemp(join(tmpdir(), 'echomirror-cookie-'));
   let child: ChildProcess | undefined;
@@ -195,13 +218,7 @@ async function readChromiumCookie(source: BrowserProfile): Promise<string | unde
     const client = await CDP({ port: await devToolsPort(snapshot, child, source.name) });
     try {
       await client.Network.enable();
-      const { cookies } = await client.Network.getAllCookies() as { cookies: ChromiumCookie[] };
-      const now = Date.now() / 1000;
-      return cookies.filter((cookie: ChromiumCookie) => {
-        const domain = cookie.domain.replace(/^\./, '');
-        return (domain === ECHO_HOST || ECHO_HOST.endsWith(`.${domain}`))
-          && (!cookie.expires || cookie.expires < 0 || cookie.expires > now);
-      }).map((cookie: ChromiumCookie) => `${cookie.name}=${cookie.value}`).join('; ') || undefined;
+      return await echoCookieFrom(client);
     } finally {
       await client.Browser.close().catch(() => undefined);
       await client.close();
@@ -212,7 +229,39 @@ async function readChromiumCookie(source: BrowserProfile): Promise<string | unde
       await Promise.race([new Promise<void>(resolve => child?.once('exit', () => resolve())), sleep(2_000)]);
       if (child.exitCode === null) child.kill('SIGKILL');
     }
-    await rm(snapshot, { recursive: true, force: true });
+    await rm(snapshot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+}
+
+async function loginWithTemporaryProfile(browser: BrowserInstallation): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), 'echomirror-login-'));
+  let child: ChildProcess | undefined;
+  let client: Awaited<ReturnType<typeof CDP>> | undefined;
+  try {
+    child = spawn(browser.executable, [
+      `--user-data-dir=${directory}`, '--profile-directory=Default', '--remote-debugging-port=0',
+      '--remote-allow-origins=*', '--no-first-run', '--no-default-browser-check', LOGIN_URL,
+    ], { stdio: 'ignore' });
+    client = await CDP({ port: await devToolsPort(directory, child, browser.name) });
+    await client.Network.enable();
+    process.stderr.write(`Opened UQ Echo360 in a temporary ${browser.name} profile. Complete login if prompted…\n`);
+    for (let attempt = 0; attempt < 150; attempt += 1) {
+      const cookie = await echoCookieFrom(client);
+      if (cookie && await validateEchoCookie(cookie)) return cookie;
+      await sleep(2_000);
+    }
+    throw new Error(`Timed out waiting for a valid Echo360 cookie in ${browser.name}.`);
+  } finally {
+    if (client) {
+      await client.Browser.close().catch(() => undefined);
+      await client.close().catch(() => undefined);
+    }
+    if (child?.exitCode === null) {
+      child.kill();
+      await Promise.race([new Promise<void>(resolve => child?.once('exit', () => resolve())), sleep(2_000)]);
+      if (child.exitCode === null) child.kill('SIGKILL');
+    }
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
@@ -230,15 +279,8 @@ async function captureEchoCookie(): Promise<string> {
         lastFailure = `no Echo360 cookies found in ${profile.name} ${profile.profile}`;
         return undefined;
       }
-      const response = await fetch(`https://${ECHO_HOST}/user/enrollments`, {
-        headers: { Cookie: cookie },
-        redirect: 'manual',
-      });
-      const isJson = response.headers.get('content-type')?.includes('json') === true;
-      if (response.status === 200 && isJson) return cookie;
-      lastFailure = response.status >= 300 && response.status < 400
-        ? 'Echo360 redirected the browser session to login'
-        : `Echo360 rejected the browser cookies with HTTP ${response.status}${isJson ? '' : ' (non-JSON response)'}`;
+      if (await validateEchoCookie(cookie)) return cookie;
+      lastFailure = `Echo360 rejected the browser cookies from ${profile.name} ${profile.profile}`;
     } catch (error) {
       lastFailure = error instanceof Error ? error.message : String(error);
     }
@@ -250,18 +292,12 @@ async function captureEchoCookie(): Promise<string> {
     if (existing) return existing;
   }
 
-  const target = profiles[0]!;
-  const profileArgs = target.profile === '.' ? [] : [`--profile-directory=${target.profile}`];
-  const opener = spawn(target.executable, [`--user-data-dir=${target.dataDirectory}`, ...profileArgs, LOGIN_URL], { detached: true, stdio: 'ignore' });
-  opener.unref();
-  process.stderr.write(`Opened UQ Echo360 in ${target.name} (${target.profile}). Complete login if prompted…\n`);
-
-  for (let attempt = 0; attempt < 150; attempt += 1) {
-    const cookie = await readValidCookie(target);
-    if (cookie) return cookie;
-    await sleep(2_000);
+  try {
+    return await loginWithTemporaryProfile(profiles[0]!);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message} Previous profile scan result: ${lastFailure}.`);
   }
-  throw new Error(`Timed out waiting for a valid Echo360 cookie in ${target.name} (${target.profile}): ${lastFailure}.`);
 }
 
 export const COOKIE_FILE = 'cookies';
